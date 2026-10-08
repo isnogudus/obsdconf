@@ -324,3 +324,27 @@ tags $chain
 		t.Errorf("unused = %v, want %v", got, want)
 	}
 }
+
+func TestEmptyBlockOnOneLine(t *testing.T) {
+	for _, src := range []string{"server ::1 {}\n", "server ::1 { }\n", "server ::1 {\n}\n"} {
+		c, err := parseTest(src, Options{})
+		if err != nil || len(c.servers) != 1 {
+			t.Errorf("%q: servers = %v, err = %v", src, c.servers, err)
+		}
+	}
+	// One statement may share the line, as in httpd.conf.
+	c, err := parseTest("server ::1 { user x }\nno sandbox\n", Options{})
+	if err != nil || c.servers[0].user != "x" || !c.nosandbx {
+		t.Errorf("one-line block: %+v, err = %v", c, err)
+	}
+	// Two may not.
+	_, err = parseTest("server ::1 { user x user y }\nno sandbox\n", Options{})
+	if err == nil || err.Error() != `test.conf:1: expected "}": a block on one line holds one statement, got "user"` {
+		t.Errorf("two statements on one line: err = %v", err)
+	}
+	// An error inside reports once and goes on after the line.
+	_, err = parseTest("server ::1 { group x }\nlog level loud\n", Options{})
+	if err == nil || err.Error() != "test.conf:1: unknown server option \"group\"\ntest.conf:2: expected log level, got \"loud\"" {
+		t.Errorf("error in one-line block: err = %v", err)
+	}
+}

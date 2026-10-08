@@ -569,7 +569,10 @@ func (p *Parser) skipList() {
 }
 
 // Block parses the statements of a brace-enclosed block; the opening
-// brace is the current token and must end its line. stmt is called like
+// brace is the current token. As in httpd.conf(5), the block may stand on
+// one line if it holds one statement, as in { user x }; it may also be
+// empty, {} or { }. Otherwise the statements start on the line after the
+// brace. stmt is called like
 // the statement function of Parse. what names the block in the error for
 // a missing closing brace.
 func (p *Parser) Block(what string, stmt func() bool) bool {
@@ -578,9 +581,35 @@ func (p *Parser) Block(what string, stmt func() bool) bool {
 		return p.Expected(`"{"`)
 	}
 	p.Next()
-	if p.tok.Kind != Newline {
-		// Report, but keep parsing the block.
-		p.Expected(`end of line after "{"`)
+	switch p.tok.Kind {
+	case RBrace:
+		// An empty block may stand on one line: {}
+		p.Next()
+		return true
+	case Newline:
+	default:
+		// One statement on the line of the brace, as httpd.conf allows:
+		// location "/x" { block }
+		ok := false
+		if p.tok.Kind == Word {
+			ok = stmt()
+		} else {
+			p.Expected("statement")
+		}
+		if ok && p.tok.Kind == RBrace {
+			p.Next()
+			return true
+		}
+		if ok {
+			p.Expected(`"}": a block on one line holds one statement`)
+		}
+		for p.tok.Kind != RBrace && p.tok.Kind != Newline && p.tok.Kind != EOF {
+			p.Next()
+		}
+		if p.tok.Kind == RBrace {
+			p.Next()
+		}
+		return false
 	}
 	for {
 		switch p.tok.Kind {
