@@ -2,6 +2,7 @@ package obsdconf
 
 import (
 	"errors"
+	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -293,5 +294,33 @@ func TestErrors(t *testing.T) {
 				t.Errorf("got\n  %s\nwant\n  %s", strings.Join(got, "\n  "), strings.Join(tt.want, "\n  "))
 			}
 		})
+	}
+}
+
+func TestUnusedMacros(t *testing.T) {
+	p := New("test.conf", []byte(`
+used = "client"
+helper = x
+chain = "$helper y"
+unify = 192.0.2.10
+also = 1
+log level debug
+client id $used
+tags $chain
+`), Options{Macros: map[string]string{"cli": "unused-but-predefined"}})
+	if err := p.Parse(func() bool {
+		for p.Tok().Kind == Word {
+			p.Next()
+		}
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range p.UnusedMacros() {
+		got = append(got, fmt.Sprintf("%s %s", m.Pos, m.Name))
+	}
+	if want := []string{"test.conf:5 unify", "test.conf:6 also"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("unused = %v, want %v", got, want)
 	}
 }

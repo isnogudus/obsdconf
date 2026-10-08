@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -80,10 +81,14 @@ type Parser struct {
 	// include loops.
 	active map[string]bool
 	// pending holds the remaining tokens of a macro expansion.
-	pending  []Token
-	tok      Token
-	ahead    []Token
-	macros   map[string][]Token
+	pending []Token
+	tok     Token
+	ahead   []Token
+	macros  map[string][]Token
+	// defs holds where each macro of the file was defined, and used which
+	// of them were referenced; predefined macros are not tracked.
+	defs     map[string]Pos
+	used     map[string]bool
 	keywords map[string]bool
 	errs     ErrorList
 }
@@ -120,6 +125,8 @@ func New(name string, src []byte, opts Options) *Parser {
 		opts:     opts,
 		active:   map[string]bool{},
 		macros:   map[string][]Token{},
+		defs:     map[string]Pos{},
+		used:     map[string]bool{},
 		keywords: map[string]bool{"include": true},
 	}
 	for _, k := range opts.Keywords {
@@ -178,6 +185,7 @@ func (p *Parser) fetch() Token {
 		}
 		if t.Kind == Word && strings.HasPrefix(t.Text, "$") {
 			val, ok := p.macros[t.Text[1:]]
+			p.used[t.Text[1:]] = true
 			if !ok {
 				t = Token{Kind: Illegal, Text: fmt.Sprintf("undefined macro %q", t.Text), Pos: t.Pos}
 			} else {
@@ -268,6 +276,34 @@ func (p *Parser) Expected(what string) bool {
 		p.Errorf(p.tok.Pos, "expected %s, got %s", what, p.tok)
 	}
 	return false
+}
+
+// Macro is a macro defined in the configuration.
+type Macro struct {
+	Name string
+	Pos  Pos
+}
+
+// UnusedMacros returns the macros defined in the configuration, after
+// Parse, that no statement or other macro references, in the order of
+// their definitions. Predefined macros from Options.Macros are not
+// included. pfctl(8) warns about these, since a macro that is defined but
+// never used is often a typing error.
+func (p *Parser) UnusedMacros() []Macro {
+	var out []Macro
+	for name, pos := range p.defs {
+		if !p.used[name] {
+			out = append(out, Macro{Name: name, Pos: pos})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i].Pos, out[j].Pos
+		if a.File != b.File {
+			return a.File < b.File
+		}
+		return a.Line < b.Line
+	})
+	return out
 }
 
 // Errors returns the errors reported so far.
@@ -385,6 +421,7 @@ func (p *Parser) macroDef() bool {
 		return false
 	}
 	p.macros[t.Text] = val
+	p.defs[t.Text] = t.Pos
 	return true
 }
 
@@ -406,6 +443,7 @@ func (p *Parser) relex(t Token) ([]Token, bool) {
 		}
 		if u.Kind == Word && strings.HasPrefix(u.Text, "$") {
 			val, ok := p.macros[u.Text[1:]]
+			p.used[u.Text[1:]] = true
 			if !ok {
 				p.Errorf(t.Pos, "undefined macro %q", u.Text)
 				return nil, false

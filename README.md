@@ -77,6 +77,8 @@ for the full API.
   `1h30m`, `2w`), `Bool`, `Enum`, `Addr`, `Prefix`.
 - Multi-word keywords: `p.Accept("client", "id")`; negated options:
   `p.Accept("no")`.
+- `UnusedMacros` lists the macros that are defined but never used, which
+  `pfctl` warns about since they are often typing errors.
 - `Options.Secret` rejects files that are not owned by root or the current
   user, or that are group writable or accessible by others — the rules of
   `check_file_secrecy()` in OpenBSD daemons. It applies to included files

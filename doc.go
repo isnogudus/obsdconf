@@ -17,6 +17,7 @@
 //   - Values: Word, Text, Number, Port, Duration, Bool, Enum, Addr, Prefix.
 //   - Multi-word keywords with Accept("client", "id"); negated options with
 //     Accept("no").
+//   - UnusedMacros reports macros that are defined but never used.
 //   - Errors as file:line: message. After an error the parser skips to the
 //     end of the statement and goes on, so one run reports all errors.
 //   - Options.Secret checks file permissions like check_file_secrecy() for
