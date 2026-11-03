@@ -177,32 +177,85 @@ func (p *Parser) raw() Token {
 // errors.
 func (p *Parser) fetch() Token {
 	for {
-		var t Token
 		if len(p.pending) > 0 {
-			t, p.pending = p.pending[0], p.pending[1:]
-		} else {
-			t = p.raw()
+			t := p.pending[0]
+			p.pending = p.pending[1:]
+			return t
 		}
-		if t.Kind == Word && strings.HasPrefix(t.Text, "$") {
-			val, ok := p.macros[t.Text[1:]]
-			p.used[t.Text[1:]] = true
-			if !ok {
-				t = Token{Kind: Illegal, Text: fmt.Sprintf("undefined macro %q", t.Text), Pos: t.Pos}
-			} else {
-				exp := make([]Token, len(val), len(val)+len(p.pending))
-				for i, v := range val {
-					v.Pos = t.Pos
-					exp[i] = v
-				}
-				p.pending = append(exp, p.pending...)
-				continue
+		t := p.raw()
+		if !hasMacro(t) {
+			if t.Kind == Illegal {
+				p.Errorf(t.Pos, "%s", t.Text)
 			}
+			return t
 		}
-		if t.Kind == Illegal {
-			p.Errorf(t.Pos, "%s", t.Text)
+		toks, msg := p.expand(t)
+		if msg != "" {
+			p.Errorf(t.Pos, "%s", msg)
+			return Token{Kind: Illegal, Text: msg, Pos: t.Pos}
 		}
-		return t
+		// A predefined macro may be empty; then the loop reads on.
+		p.pending = toks
 	}
+}
+
+func hasMacro(t Token) bool {
+	return t.Kind == Word && strings.IndexByte(t.Text, '$') >= 0
+}
+
+// expand replaces the macro references in a word, as yylex() in OpenBSD's
+// parse.y does: a name starts after "$" and runs up to the first character
+// that is not a letter, digit or underscore. ${name} delimits the name, as
+// in the shell, so that such a character may follow it. A reference that
+// is the whole word stands for all tokens of the value, so a macro may
+// hold a list. Otherwise the references and the text around them form one
+// word, and each value must be a single word. On error, expand returns the
+// message.
+func (p *Parser) expand(t Token) ([]Token, string) {
+	var b strings.Builder
+	rest := t.Text
+	for {
+		i := strings.IndexByte(rest, '$')
+		if i < 0 {
+			b.WriteString(rest)
+			break
+		}
+		b.WriteString(rest[:i])
+		rest = rest[i+1:]
+		var name, ref string
+		if strings.HasPrefix(rest, "{") {
+			// The lexer only passes ${ with a closing brace after the name.
+			j := strings.IndexByte(rest, '}')
+			name, ref, rest = rest[1:j], "$"+rest[:j+1], rest[j+1:]
+		} else {
+			n := 0
+			for n < len(rest) && isNameByte(rest[n]) {
+				n++
+			}
+			name, ref, rest = rest[:n], "$"+rest[:n], rest[n:]
+		}
+		if name == "" {
+			return nil, fmt.Sprintf(`missing macro name after "$" in %q (quote the value for a literal "$")`, t.Text)
+		}
+		p.used[name] = true
+		val, ok := p.macros[name]
+		if !ok {
+			return nil, fmt.Sprintf("undefined macro %q", ref)
+		}
+		if t.Text == ref {
+			out := make([]Token, len(val))
+			for i, v := range val {
+				v.Pos = t.Pos
+				out[i] = v
+			}
+			return out, ""
+		}
+		if len(val) != 1 || val[0].Kind != Word {
+			return nil, fmt.Sprintf("macro %q does not expand to a single word, so it cannot be part of the word %q", ref, t.Text)
+		}
+		b.WriteString(val[0].Text)
+	}
+	return []Token{{Kind: Word, Text: b.String(), Pos: t.Pos}}, ""
 }
 
 // Tok returns the current token.
@@ -441,17 +494,16 @@ func (p *Parser) relex(t Token) ([]Token, bool) {
 			p.Errorf(t.Pos, "in macro value: %s", u.Text)
 			return nil, false
 		}
-		if u.Kind == Word && strings.HasPrefix(u.Text, "$") {
-			val, ok := p.macros[u.Text[1:]]
-			p.used[u.Text[1:]] = true
-			if !ok {
-				p.Errorf(t.Pos, "undefined macro %q", u.Text)
+		u.Pos = t.Pos
+		if hasMacro(u) {
+			toks, msg := p.expand(u)
+			if msg != "" {
+				p.Errorf(t.Pos, "%s", msg)
 				return nil, false
 			}
-			out = append(out, val...)
+			out = append(out, toks...)
 			continue
 		}
-		u.Pos = t.Pos
 		out = append(out, u)
 	}
 }

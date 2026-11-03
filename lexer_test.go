@@ -55,6 +55,29 @@ func TestLexer(t *testing.T) {
 			},
 		},
 		{
+			name: "braced macro reference",
+			src:  "path ${a}_x/${b} ${c} {",
+			want: []tk{
+				{Word, "path", 1}, {Word, "${a}_x/${b}", 1}, {Word, "${c}", 1},
+				{LBrace, "{", 1}, {Newline, "", 1}, {EOF, "", 1},
+			},
+		},
+		{
+			name: "braced macro reference in quotes",
+			src:  `"${a}"`,
+			want: []tk{{String, "${a}", 1}, {Newline, "", 1}, {EOF, "", 1}},
+		},
+		{
+			name: "unterminated braced macro reference",
+			src:  "a ${b c} d\nx ${y\nz",
+			want: []tk{
+				{Word, "a", 1}, {Illegal, "invalid macro reference, expected ${name}", 1},
+				{Word, "d", 1}, {Newline, "", 1},
+				{Word, "x", 2}, {Illegal, "invalid macro reference, expected ${name}", 2},
+				{Newline, "", 2}, {Word, "z", 3}, {Newline, "", 3}, {EOF, "", 3},
+			},
+		},
+		{
 			name: "stray backslash",
 			src:  `a\b`,
 			want: []tk{

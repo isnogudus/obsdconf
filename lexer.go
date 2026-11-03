@@ -66,6 +66,11 @@ func isDelim(c byte) bool {
 	return false
 }
 
+// isNameByte reports whether c may be part of a macro name.
+func isNameByte(c byte) bool {
+	return c == '_' || '0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
+}
+
 // next returns the next token. At the end of the input it returns a
 // newline, so that the last statement is terminated even without a
 // trailing newline, and then EOF.
@@ -129,9 +134,37 @@ func (l *lexer) single(kind Kind) Token {
 func (l *lexer) word() Token {
 	start := l.off
 	for l.off < len(l.src) && !isDelim(l.src[l.off]) {
+		if l.src[l.off] == '$' && l.off+1 < len(l.src) && l.src[l.off+1] == '{' {
+			if !l.bracedMacro() {
+				return Token{Kind: Illegal, Text: `invalid macro reference, expected ${name}`, Pos: l.pos()}
+			}
+			continue
+		}
 		l.off++
 	}
 	return Token{Kind: Word, Text: string(l.src[start:l.off]), Pos: l.pos()}
+}
+
+// bracedMacro consumes a macro reference ${name} in a word, whose braces
+// would otherwise end the word. The name is checked by the parser. If
+// the closing brace does not follow the name, it skips to the next "}" or
+// the end of the line and returns false.
+func (l *lexer) bracedMacro() bool {
+	l.off += 2
+	for l.off < len(l.src) && isNameByte(l.src[l.off]) {
+		l.off++
+	}
+	if l.off < len(l.src) && l.src[l.off] == '}' {
+		l.off++
+		return true
+	}
+	for l.off < len(l.src) && l.src[l.off] != '\n' {
+		l.off++
+		if l.src[l.off-1] == '}' {
+			break
+		}
+	}
+	return false
 }
 
 func (l *lexer) quoted() Token {

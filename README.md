@@ -71,6 +71,19 @@ for the full API.
 - Macros: `name = value` at top level, used as `$name`. A quoted value is
   split into tokens again, as in `pf.conf`, so `lan = "{ a b }"` defines a
   list. `Options.Macros` predefines macros, like `pfctl -D`.
+- Macro references inside words: as in OpenBSD's `parse.y`, a macro name
+  ends at the first character that is not a letter, digit or `_`, and the
+  rest of the word is kept, so after `movies = "/export/movies"` the word
+  `$movies/plex` is `/export/movies/plex`. OpenBSD itself cannot do this
+  for `$x/y`, because `/` ends an unquoted word there; obsdconf allows `/`
+  in words. `${name}` delimits the name, as in the shell, so that a
+  letter, digit or `_` may follow it: `${base}_old`, `${host}1`; OpenBSD
+  has no such form. A word may hold several references (`$host:$port`)
+  and text before them (`pre-$name`). Such a reference must expand to a single
+  word; a list macro (`$lan/x`) is an error, while `$lan` on its own still
+  expands to the list. In an unquoted word every `$` starts a reference,
+  and a `$` without a name (`a$`, `$/x`) is an error; quote values that
+  contain a literal `$`. Quoted strings are never expanded.
 - `include "file"`, relative to the including file, with loop detection.
 - Lists `{ a b }` (commas optional, may span lines) and blocks.
 - Values: `Word`, `Text`, `Number`, `Port`, `Duration` (`500ms`, `90`,
